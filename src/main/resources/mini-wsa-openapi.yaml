@@ -22,6 +22,46 @@ paths:
         '400':
           description: Validation error or invalid schema
 
+  /v1/stats/summary:
+    get:
+      summary: Get aggregated statistics
+      operationId: getSummary
+      description: Returns aggregated statistics for a given configuration and time range.
+      parameters:
+        - name: configId
+          in: query
+          required: true
+          description: The unique identifier of the configuration.
+          schema:
+            type: integer
+            format: int64
+            example: 14227
+        - name: from
+          in: query
+          required: true
+          description: The start date and time of the range in ISO 8601 format.
+          schema:
+            type: string
+            format: date-time
+            example: "2026-10-12T00:00:00Z"
+        - name: to
+          in: query
+          required: true
+          description: The end date and time of the range in ISO 8601 format.
+          schema:
+            type: string
+            format: date-time
+            example: "2026-10-12T23:59:59Z"
+      responses:
+        '200':
+          description: Successfully retrieved stats summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsSummaryResponse'
+        '400':
+          description: Invalid query parameters or bad request.
+
 components:
   schemas:
     IngestRequest:
@@ -38,6 +78,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SecurityEvent'
+
     SecurityEvent:
       type: object
       required:
@@ -60,6 +101,7 @@ components:
           example: '2026-05-20T14:32:10Z'
         configId:
           type: integer
+          format: int64
           example: 14227
         policyId:
           type: string
@@ -83,13 +125,26 @@ components:
             - MONITOR
           example: DENY
       additionalProperties: true
+
     Rule:
       type: object
       required:
+        - id
         - severity
         - category
       additionalProperties: true
       properties:
+        id:
+          type: string
+          description: Stable identifier of the rule definition.
+          example: '950001'
+        name:
+          type: string
+          example: SQL Injection Attack
+        message:
+          type: string
+          description: Detail about this specific match; can differ per event for the same rule.
+          example: SQLi detected in query string
         severity:
           type: string
           enum:
@@ -109,3 +164,114 @@ components:
             - DOS
             - RATE_LIMIT
           example: INJECTION
+
+    StatsSummaryResponse:
+      type: object
+      required:
+        - configId
+        - timeRange
+        - totalEvents
+        - byCategory
+        - byAction
+        - topAttackers
+        - topTargetedPaths
+      properties:
+        configId:
+          type: integer
+          format: int64
+          example: 14227
+        timeRange:
+          type: object
+          required:
+            - from
+            - to
+          properties:
+            from:
+              type: string
+              format: date-time
+              example: "2026-10-12T00:00:00Z"
+            to:
+              type: string
+              format: date-time
+              example: "2026-10-12T23:59:59Z"
+        totalEvents:
+          type: integer
+          format: int64
+          example: 1523
+        byCategory:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/CategoryMetrics'
+          example:
+            INJECTION:
+              count: 450
+              avgThreatScore: 72.3
+            BOT:
+              count: 380
+              avgThreatScore: 45.1
+        byAction:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+          example:
+            DENY: 890
+            ALERT: 433
+            MONITOR: 200
+        topAttackers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttackerMetric'
+        topTargetedPaths:
+          type: array
+          items:
+            $ref: '#/components/schemas/PathMetric'
+
+    CategoryMetrics:
+      type: object
+      required:
+        - count
+        - avgThreatScore
+      properties:
+        count:
+          type: integer
+          format: int64
+          example: 450
+        avgThreatScore:
+          type: number
+          format: double
+          example: 72.3
+
+    AttackerMetric:
+      type: object
+      required:
+        - clientIp
+        - count
+        - avgThreatScore
+      properties:
+        clientIp:
+          type: string
+          format: ipv4
+          example: "203.0.113.42"
+        count:
+          type: integer
+          format: int64
+          example: 87
+        avgThreatScore:
+          type: number
+          format: double
+          example: 81.2
+
+    PathMetric:
+      type: object
+      required:
+        - path
+        - count
+      properties:
+        path:
+          type: string
+          example: "/api/v1/login"
+        count:
+          type: integer
+          format: int64
+          example: 234

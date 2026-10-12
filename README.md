@@ -168,4 +168,20 @@ Below is the structured breakdown I am following to build, test, and deliver the
 * **Decision:** For this take-home assessment, I chose to implement a clean wrapper JSON payload (envelope pattern) rather than raw polymorphic arrays. In a true enterprise production environment, we would implement content-type negotiation or versioned endpoints (`/v1/events` vs `/v1/events/batch`), but the wrapper provides the best balance of safety and simplicity for this scope.
 
 ### 2. Error handling
-* **Define proper error handling:** duplicates, inexistent configurations, etc. 
+I added a global exception handler to catch common errors and return clean HTTP status codes instead of generic 500 server crashes.
+* **Define proper error handling:** Duplicates, Bad Requests and Missing Configs, etc. 
+
+### 3. Summary endpoint
+I built this summary endpoint directly into the database to keep things simple for a take-home project. In a real production system, running heavy aggregations and building nested JSON on an operational database is a bad idea because it can slow down live writes.
+
+Real-world systems usually handle this by pushing data to a dedicated data warehouse like ClickHouse or Snowflake, or by splitting reporting concerns using a separate read model.
+* **Analytical Offloading:** Route heavy reporting queries to a dedicated data warehouse or OLAP store rather than an operational database.
+* **Read Replicas:** Route analytical and summary reads to a replica database to prevent heavy aggregation queries from impacting primary transaction I/O.
+
+### 4. Data structure
+For this take-home assessment, SecurityEventEntity is kept flat and semi-structured using jsonb to balance implementation speed with query flexibility.
+
+In a production environment handling high-volume security logs, a different architectural strategy is required:
+
+* **Partitioning and Retention:** Implement time-based table partitioning and automated retention policies to reduce working memory usage and speed up data retrieval.
+* **Asynchronous Ingestion:** Buffer incoming events through a message broker like Apache Kafka to stabilize ingestion under heavy traffic spikes.

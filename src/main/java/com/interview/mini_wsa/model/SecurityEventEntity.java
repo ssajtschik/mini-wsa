@@ -3,7 +3,6 @@ package com.interview.mini_wsa.model;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -30,7 +29,7 @@ public class SecurityEventEntity {
     private Long id;
 
     // External Id
-    @Column(name = "event_id", nullable = false, unique = true)
+    @Column(name = "event_id", nullable = false)
     private String eventId;
 
     @Column(name = "timestamp", nullable = false)
@@ -61,13 +60,15 @@ public class SecurityEventEntity {
     private String attackType;
 
     @Column(name = "threat_score", nullable = false)
-    @NotNull(message = "Threat score is required")
-    @Min(value = 1, message = "Threat score must be at least 1")
+    @Min(value = 0, message = "Threat score cannot be negative")
     @Max(value = 100, message = "Threat score cannot exceed 100")
     private int threatScore;
 
-    @Embedded
-    private RuleEmbeddable rule;
+    @Column(name = "category", nullable = false)
+    private String category;
+
+    @Column(name = "severity", nullable = false)
+    private String severity;
 
     @Column(name = "raw_payload", columnDefinition = "jsonb", nullable = false)
     @JdbcTypeCode(SqlTypes.JSON)

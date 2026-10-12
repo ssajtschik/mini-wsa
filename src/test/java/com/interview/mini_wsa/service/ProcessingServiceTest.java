@@ -7,6 +7,9 @@ import com.interview.mini_wsa.configuration.WsaConfig;
 import com.interview.mini_wsa.exception.InvalidIngestRequestException;
 import com.interview.mini_wsa.model.SecurityEventEntity;
 import com.interview.mini_wsa.repository.SecurityEventRepository;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,6 +21,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -43,6 +47,7 @@ class ProcessingServiceTest {
     private ArgumentCaptor<List<SecurityEventEntity>> entitiesCaptor;
 
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
+    private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
     private WsaConfig wsaConfig;
     private ProcessingService processingService;
@@ -65,7 +70,7 @@ class ProcessingServiceTest {
         wsaConfig.setSensitivePaths(List.of("/admin", "/login"));
         wsaConfig.setRules(new ArrayList<>()); // TODO: Not implemented yet
 
-        processingService = new ProcessingServiceImpl(wsaConfig, securityEventRepository, jsonMapper);
+        processingService = new ProcessingServiceImpl(wsaConfig, securityEventRepository, jsonMapper, validator);
     }
 
     @Test
@@ -73,9 +78,8 @@ class ProcessingServiceTest {
         SecurityEvent event = event("evt-00132", "/api/v1/login",
                 Rule.SeverityEnum.CRITICAL, Rule.CategoryEnum.INJECTION, SecurityEvent.ActionEnum.DENY);
         event.getRule()
-                .putAdditionalProperty("ruleId", "950001")
-                .putAdditionalProperty("name", "SQL Injection Attack")
-                .putAdditionalProperty("message", "SQLi detected in query string");
+                .name("SQL Injection Attack")
+                .message("SQLi detected in query string");
 
         OffsetDateTime before = OffsetDateTime.now();
         processingService.ingest(new IngestRequest().event(event));
@@ -96,19 +100,20 @@ class ProcessingServiceTest {
         assertEquals("www.example.com", entity.getHostname());
         assertEquals("/api/v1/login", entity.getPath());
         assertEquals("DENY", entity.getAction());
-        assertEquals("CRITICAL", entity.getRule().getSeverity());
-        assertEquals("INJECTION", entity.getRule().getCategory());
-        assertEquals("950001", entity.getRule().getRuleId());
-        assertEquals("SQL Injection Attack", entity.getRule().getName());
-        assertEquals("SQLi detected in query string", entity.getRule().getMessage());
+        assertEquals("CRITICAL", entity.getSeverity());
+        assertEquals("INJECTION", entity.getCategory());
         assertEquals("SQL/Command Injection", entity.getAttackType());
         // CRITICAL (40) + DENY (20) + sensitive path (15)
         assertEquals(75, entity.getThreatScore());
 
         JsonNode rawPayload = jsonMapper.readTree(entity.getRawPayload());
-        assertEquals(jsonMapper.valueToTree(event), rawPayload);
+        assertEquals("evt-00132", rawPayload.get("eventId").asString());
+        assertEquals("2026-05-20T14:32:10Z", rawPayload.get("timestamp").asString());
+        assertEquals(14227L, rawPayload.get("configId").asLong());
         assertEquals("pol-7", rawPayload.get("policyId").asString());
-        assertEquals("950001", rawPayload.get("rule").get("ruleId").asString());
+        assertEquals("DENY", rawPayload.get("action").asString());
+        assertEquals("CRITICAL", rawPayload.get("rule").get("severity").asString());
+        assertEquals("950001", rawPayload.get("rule").get("id").asString());
     }
 
     @Test
@@ -120,9 +125,6 @@ class ProcessingServiceTest {
 
         verify(securityEventRepository).saveAll(entitiesCaptor.capture());
         SecurityEventEntity entity = entitiesCaptor.getValue().getFirst();
-        assertNull(entity.getRule().getRuleId());
-        assertNull(entity.getRule().getName());
-        assertNull(entity.getRule().getMessage());
         assertNotNull(entity.getRawPayload());
     }
 
@@ -195,9 +197,82 @@ class ProcessingServiceTest {
     }
 
     @Test
+    void ingest_singleEventMissingRequiredField_throwsAndSavesNothing() {
+        SecurityEvent event = event("evt-1", "/",
+                Rule.SeverityEnum.LOW, Rule.CategoryEnum.XSS, SecurityEvent.ActionEnum.MONITOR);
+        event.setPolicyId(null);
+
+        InvalidIngestRequestException thrown = assertThrows(InvalidIngestRequestException.class,
+                () -> processingService.ingest(new IngestRequest().event(event)));
+
+        assertTrue(thrown.getMessage().contains("event.policyId: must not be null"), thrown.getMessage());
+        verifyNoInteractions(securityEventRepository);
+    }
+
+    @Test
+    void ingest_batchItemMissingRequiredFields_reportsEveryViolationByIndex() {
+        SecurityEvent valid = event("evt-ok", "/",
+                Rule.SeverityEnum.LOW, Rule.CategoryEnum.XSS, SecurityEvent.ActionEnum.MONITOR);
+        SecurityEvent invalid = event("evt-bad", "/",
+                Rule.SeverityEnum.LOW, Rule.CategoryEnum.XSS, SecurityEvent.ActionEnum.MONITOR);
+        invalid.setConfigId(null);
+        invalid.setHostname(null);
+        invalid.getRule().setSeverity(null);
+
+        InvalidIngestRequestException thrown = assertThrows(InvalidIngestRequestException.class,
+                () -> processingService.ingest(new IngestRequest().events(List.of(valid, invalid))));
+
+        assertTrue(thrown.getMessage().contains("events[1].configId: must not be null"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("events[1].hostname: must not be null"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("events[1].rule.severity: must not be null"), thrown.getMessage());
+        assertFalse(thrown.getMessage().contains("events[0]"), thrown.getMessage());
+        verifyNoInteractions(securityEventRepository);
+    }
+
+    @Test
+    void ingest_batchItemMissingRule_throwsInsteadOfNullPointer() {
+        SecurityEvent invalid = event("evt-bad", "/",
+                Rule.SeverityEnum.LOW, Rule.CategoryEnum.XSS, SecurityEvent.ActionEnum.MONITOR);
+        invalid.setRule(null);
+
+        InvalidIngestRequestException thrown = assertThrows(InvalidIngestRequestException.class,
+                () -> processingService.ingest(new IngestRequest().events(List.of(invalid))));
+
+        assertTrue(thrown.getMessage().contains("events[0].rule: must not be null"), thrown.getMessage());
+        verifyNoInteractions(securityEventRepository);
+    }
+
+    @Test
+    void ingest_nullBatchItem_throws() {
+        SecurityEvent valid = event("evt-ok", "/",
+                Rule.SeverityEnum.LOW, Rule.CategoryEnum.XSS, SecurityEvent.ActionEnum.MONITOR);
+        List<SecurityEvent> events = new ArrayList<>();
+        events.add(valid);
+        events.add(null);
+
+        InvalidIngestRequestException thrown = assertThrows(InvalidIngestRequestException.class,
+                () -> processingService.ingest(new IngestRequest().events(events)));
+
+        assertTrue(thrown.getMessage().contains("events[1]: must not be null"), thrown.getMessage());
+        verifyNoInteractions(securityEventRepository);
+    }
+
+    @Test
+    void ingest_unconfiguredSeverityAndAction_scoresZero() {
+        wsaConfig.getSeverities().remove("LOW");
+        wsaConfig.getActions().remove("MONITOR");
+        SecurityEvent event = event("evt-zero", "/public",
+                Rule.SeverityEnum.LOW, Rule.CategoryEnum.XSS, SecurityEvent.ActionEnum.MONITOR);
+
+        processingService.ingest(new IngestRequest().event(event));
+
+        verify(securityEventRepository).saveAll(entitiesCaptor.capture());
+        assertEquals(0, entitiesCaptor.getValue().getFirst().getThreatScore());
+    }
+
+    @Test
     void ingest_duplicateEventId_propagatesUniqueConstraintViolation() {
-        DataIntegrityViolationException conflict = new DataIntegrityViolationException(
-                "could not execute statement; constraint [unique_security_events_event_id]");
+        DataIntegrityViolationException conflict = integrityViolation("unique_security_events_event_id");
         when(securityEventRepository.saveAll(anyList())).thenThrow(conflict);
         SecurityEvent event = event("evt-dup", "/",
                 Rule.SeverityEnum.HIGH, Rule.CategoryEnum.XSS, SecurityEvent.ActionEnum.DENY);
@@ -207,13 +282,12 @@ class ProcessingServiceTest {
 
         // Must reach GlobalExceptionHandler untouched so the constraint name still maps to 409 Conflict
         assertSame(conflict, thrown);
-        assertTrue(thrown.getMessage().contains("unique_security_events_event_id"));
     }
 
     @Test
     void ingest_batchWithConflict_submitsWholeBatchInSingleSave() {
-        when(securityEventRepository.saveAll(anyList())).thenThrow(new DataIntegrityViolationException(
-                "could not execute statement; constraint [unique_security_events_event_id]"));
+        when(securityEventRepository.saveAll(anyList()))
+                .thenThrow(integrityViolation("unique_security_events_event_id"));
         SecurityEvent fresh = event("evt-new", "/",
                 Rule.SeverityEnum.LOW, Rule.CategoryEnum.XSS, SecurityEvent.ActionEnum.MONITOR);
         SecurityEvent duplicate = event("evt-dup", "/",
@@ -244,25 +318,26 @@ class ProcessingServiceTest {
 
     @Test
     void ingest_otherIntegrityViolation_propagates() {
-        DataIntegrityViolationException violation = new DataIntegrityViolationException(
-                "null value in column \"hostname\" violates not-null constraint");
+        DataIntegrityViolationException violation = integrityViolation("security_events_threat_score_check");
         when(securityEventRepository.saveAll(anyList())).thenThrow(violation);
-        SecurityEvent event = event("evt-null", "/",
+        SecurityEvent event = event("evt-check", "/",
                 Rule.SeverityEnum.LOW, Rule.CategoryEnum.XSS, SecurityEvent.ActionEnum.MONITOR);
-        event.setHostname(null);
 
         DataIntegrityViolationException thrown = assertThrows(DataIntegrityViolationException.class,
                 () -> processingService.ingest(new IngestRequest().event(event)));
 
         assertSame(violation, thrown);
-        assertFalse(thrown.getMessage().contains("unique_security_events_event_id"));
-        verify(securityEventRepository).saveAll(entitiesCaptor.capture());
-        assertNull(entitiesCaptor.getValue().getFirst().getHostname());
+    }
+
+    /** Mirrors how Spring wraps a Hibernate constraint violation raised by the repository. */
+    private static DataIntegrityViolationException integrityViolation(String constraintName) {
+        return new DataIntegrityViolationException("could not execute statement",
+                new ConstraintViolationException("constraint violated", new SQLException(), constraintName));
     }
 
     private static SecurityEvent event(String eventId, String path, Rule.SeverityEnum severity,
                                        Rule.CategoryEnum category, SecurityEvent.ActionEnum action) {
-        return new SecurityEvent(eventId, EVENT_TIME, 14227, "pol-7", "203.0.113.42", "www.example.com", path,
-                new Rule(severity, category), action);
+        return new SecurityEvent(eventId, EVENT_TIME, 14227L, "pol-7", "203.0.113.42", "www.example.com", path,
+                new Rule("950001", severity, category), action);
     }
 }
