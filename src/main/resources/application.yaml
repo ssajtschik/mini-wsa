@@ -13,3 +13,30 @@ spring:
     properties:
       hibernate:
         format_sql: true
+
+mini-wsa:
+  categories:
+    INJECTION: SQL/Command Injection
+    XSS: Cross-Site Scripting
+    PROTOCOL_VIOLATION: Protocol Anomaly
+    DATA_LEAKAGE: Data Exfiltration
+    BOT: Bot Activity
+    DOS: Denial of Service
+    RATE_LIMIT: Rate Limiting
+  severities:
+    CRITICAL: 40
+    HIGH: 30
+    MEDIUM: 20
+    LOW: 10
+  actions:
+    DENY: 20
+    ALERT: 10
+    MONITOR: 0
+  sensitive-paths:
+    - /admin
+    - /login
+  rules:
+    - count: 5
+      window-minutes: 10
+      matching-field: clientIp
+      score: 15

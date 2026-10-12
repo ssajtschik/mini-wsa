@@ -1,0 +1,111 @@
+openapi: 3.0.3
+info:
+  title: Mini Security Analytics Pipeline (Mini WSA) API
+  version: 1.0.0
+  description: API contract for ingesting security event logs and querying analytics in the Mini WSA platform.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/events/ingest:
+    post:
+      summary: Ingest security event records
+      operationId: ingestEvents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+             $ref: '#/components/schemas/IngestRequest'
+      responses:
+        '201':
+          description: Events successfully ingested
+        '400':
+          description: Validation error or invalid schema
+
+components:
+  schemas:
+    IngestRequest:
+      type: object
+      oneOf:
+        - required:
+          - event
+        - required:
+          - events
+      properties:
+        event:
+          $ref: '#/components/schemas/SecurityEvent'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityEvent'
+    SecurityEvent:
+      type: object
+      required:
+        - eventId
+        - timestamp
+        - configId
+        - policyId
+        - clientIp
+        - hostname
+        - path
+        - rule
+        - action
+      properties:
+        eventId:
+          type: string
+          example: evt-00132
+        timestamp:
+          type: string
+          format: date-time
+          example: '2026-05-20T14:32:10Z'
+        configId:
+          type: integer
+          example: 14227
+        policyId:
+          type: string
+          example: pol-7
+        clientIp:
+          type: string
+          example: 203.0.113.42
+        hostname:
+          type: string
+          example: www.example.com
+        path:
+          type: string
+          example: /api/v1/login
+        rule:
+          $ref: '#/components/schemas/Rule'
+        action:
+          type: string
+          enum:
+            - DENY
+            - ALERT
+            - MONITOR
+          example: DENY
+      additionalProperties: true
+    Rule:
+      type: object
+      required:
+        - severity
+        - category
+      additionalProperties: true
+      properties:
+        severity:
+          type: string
+          enum:
+          - CRITICAL
+          - HIGH
+          - MEDIUM
+          - LOW
+          example: CRITICAL
+        category:
+          type: string
+          enum:
+            - INJECTION
+            - XSS
+            - PROTOCOL_VIOLATION
+            - DATA_LEAKAGE
+            - BOT
+            - DOS
+            - RATE_LIMIT
+          example: INJECTION

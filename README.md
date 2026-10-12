@@ -155,4 +155,17 @@ Below is the structured breakdown I am following to build, test, and deliver the
 
 *(Will be updated during release)*
 1. Start PostgreSQL: `docker compose up -d`
-2. Access Swagger UI: `http://localhost:8080/swagger-ui.html` # TODO
+2. Access Swagger UI: `http://localhost:8080/swagger-ui/index.html`
+
+
+## Design Decisions & Engineering Trade-Offs
+
+*(Will be updated during release)*
+
+### 1. Ingestion Payload Envelope (`/v1/events/ingest`)
+* **The Assessment Requirement:** The prompt states that the endpoint should accept either a single event or a batch array.
+* **The Real-World Challenge:** Supporting polymorphic inputs (both `SecurityEvent` and `List<SecurityEvent>`) in a single REST endpoint leads to messy parsing logic and makes schema evolution difficult, risking breaking changes for API consumers down the road.
+* **Decision:** For this take-home assessment, I chose to implement a clean wrapper JSON payload (envelope pattern) rather than raw polymorphic arrays. In a true enterprise production environment, we would implement content-type negotiation or versioned endpoints (`/v1/events` vs `/v1/events/batch`), but the wrapper provides the best balance of safety and simplicity for this scope.
+
+### 2. Error handling
+* **Define proper error handling:** duplicates, inexistent configurations, etc. 

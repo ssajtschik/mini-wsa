@@ -1,0 +1,97 @@
+### single
+POST http://localhost:8080/v1/events/ingest
+Content-Type: application/json
+
+{
+  "event": {
+    "eventId": "evt-00132",
+    "timestamp": "2026-05-20T14:32:10Z",
+    "configId": 14227,
+    "policyId": "pol_web1",
+    "clientIp": "203.0.113.42",
+    "hostname": "www.example.com",
+    "path": "/api/v1/login",
+    "method": "POST",
+    "statusCode": 403,
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "rule": {
+      "id": "950001",
+      "name": "SQL_INJECTION",
+      "message": "SQL Injection Attack Detected",
+      "severity": "CRITICAL",
+      "category": "INJECTION"
+    },
+    "action": "DENY",
+    "geoLocation": {
+      "country": "CN",
+      "city": "Beijing"
+    },
+    "requestSize": 1024,
+    "responseSize": 256
+  }
+}
+>> responses/single-{{$timestamp}}.json
+
+
+### single
+POST http://localhost:8080/v1/events/ingest
+Content-Type: application/json
+
+{
+  "events": [
+    {
+      "eventId": "monitor-00136",
+      "timestamp": "2026-05-20T14:32:10Z",
+      "configId": 14227,
+      "policyId": "pol_web1",
+      "clientIp": "203.0.113.42",
+      "hostname": "www.example.com",
+      "path": "/api/v1/login",
+      "method": "POST",
+      "statusCode": 403,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+      "rule": {
+        "id": "950001",
+        "name": "SQL_INJECTION",
+        "message": "SQL Injection Attack Detected",
+        "severity": "CRITICAL",
+        "category": "INJECTION"
+      },
+      "action": "MONITOR",
+      "geoLocation": {
+        "country": "CN",
+        "city": "Beijing"
+      },
+      "requestSize": 1024,
+      "responseSize": 256
+    },
+    {
+      "eventId": "medium-00136",
+      "timestamp": "2026-05-20T14:32:10Z",
+      "configId": 14227,
+      "policyId": "pol_web1",
+      "clientIp": "203.0.113.42",
+      "hostname": "www.example.com",
+      "path": "/api/v1/login",
+      "method": "POST",
+      "statusCode": 403,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+      "rule": {
+        "id": "950001",
+        "name": "SQL_INJECTION",
+        "message": "SQL Injection Attack Detected",
+        "severity": "MEDIUM",
+        "category": "INJECTION"
+      },
+      "action": "MONITOR",
+      "geoLocation": {
+        "country": "CN",
+        "city": "Beijing"
+      },
+      "requestSize": 1024,
+      "responseSize": 256
+    }
+  ]
+}
+>> responses/multiple-{{$timestamp}}.json
+

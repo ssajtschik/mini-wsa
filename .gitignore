@@ -3,6 +3,7 @@ target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+http-client-plus/collections/ingest/responses
 
 ### STS ###
 .apt_generated
