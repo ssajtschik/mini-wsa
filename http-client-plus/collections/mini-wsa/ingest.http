@@ -33,7 +33,7 @@ Content-Type: application/json
 >> responses/single-{{$timestamp}}.json
 
 
-### single
+### multiple
 POST http://localhost:8080/v1/events/ingest
 Content-Type: application/json
 

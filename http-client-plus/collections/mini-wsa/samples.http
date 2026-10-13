@@ -1,0 +1,6 @@
+### summary
+GET http://localhost:8080/v1/events/samples?
+    limit=50&
+    offset=0
+
+>> responses/samples-{{$timestamp}}.json

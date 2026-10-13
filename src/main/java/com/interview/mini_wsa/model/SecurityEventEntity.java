@@ -53,8 +53,9 @@ public class SecurityEventEntity {
     @Column(name = "path", nullable = false)
     private String path;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "action", nullable = false)
-    private String action;
+    private SecurityAction action;
 
     @Column(name = "attack_type", nullable = false)
     private String attackType;
@@ -64,11 +65,13 @@ public class SecurityEventEntity {
     @Max(value = 100, message = "Threat score cannot exceed 100")
     private int threatScore;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "category", nullable = false)
-    private String category;
+    private Rule.CategoryEnum category;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "severity", nullable = false)
-    private String severity;
+    private Rule.SeverityEnum severity;
 
     @Column(name = "raw_payload", columnDefinition = "jsonb", nullable = false)
     @JdbcTypeCode(SqlTypes.JSON)

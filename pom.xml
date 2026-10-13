@@ -159,14 +159,19 @@
 						<configuration>
 							<inputSpec>${project.basedir}/src/main/resources/mini-wsa-openapi.yaml</inputSpec>
 							<generatorName>spring</generatorName>
-							<apiPackage>com.akamai.wsa.api</apiPackage>
-							<modelPackage>com.akamai.wsa.model</modelPackage>
+							<apiPackage>com.interview.mini_wsa.api</apiPackage>
+							<modelPackage>com.interview.mini_wsa.model</modelPackage>
+							<schemaMappings>
+								<schemaMapping>PageOfSecurityEvent=org.springframework.data.domain.Page&lt;com.interview.mini_wsa.model.EnrichedSecurityEvent&gt;</schemaMapping>
+							</schemaMappings>
 							<configOptions>
 								<sourceFolder>src/main/java</sourceFolder>
 								<interfaceOnly>true</interfaceOnly>
 								<useSpringBoot4>true</useSpringBoot4>
 								<skipDefaultInterface>true</skipDefaultInterface>
 								<openApiNullable>false</openApiNullable>
+								<documentationProvider>none</documentationProvider>
+								<annotationLibrary>none</annotationLibrary>
 							</configOptions>
 						</configuration>
 					</execution>

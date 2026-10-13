@@ -3,7 +3,7 @@ target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
-http-client-plus/collections/ingest/responses
+http-client-plus/collections/mini-wsa/responses
 
 ### STS ###
 .apt_generated
@@ -19,6 +19,7 @@ http-client-plus/collections/ingest/responses
 *.iws
 *.iml
 *.ipr
+.mcp.json
 
 ### NetBeans ###
 /nbproject/private/

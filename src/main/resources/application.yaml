@@ -13,6 +13,10 @@ spring:
     properties:
       hibernate:
         format_sql: true
+  data:
+    web:
+      pageable:
+        size-parameter: limit
 
 mini-wsa:
   categories:

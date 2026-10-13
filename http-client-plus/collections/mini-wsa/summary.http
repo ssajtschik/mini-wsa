@@ -1,0 +1,7 @@
+### summary
+GET http://localhost:8080/v1/stats/summary?
+    configId=14227&
+    from=2026-04-21T14:32:10Z&
+    to=2026-07-22T14:32:10Z
+
+>> responses/summary-{{$timestamp}}.json

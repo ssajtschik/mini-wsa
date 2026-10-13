@@ -1,5 +1,7 @@
 package com.interview.mini_wsa.repository;
 
+import com.interview.mini_wsa.model.Rule;
+import com.interview.mini_wsa.model.SecurityAction;
 import com.interview.mini_wsa.model.SecurityEventEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,10 +84,10 @@ class SecurityEventRepositoryTest {
         entity.setClientIp("203.0.113.42");
         entity.setHostname("www.example.com");
         entity.setPath("/");
-        entity.setAction("DENY");
+        entity.setAction(SecurityAction.DENY);
         entity.setAttackType(category);
-        entity.setCategory(category);
-        entity.setSeverity("HIGH");
+        entity.setCategory(Rule.CategoryEnum.fromValue(category));
+        entity.setSeverity(Rule.SeverityEnum.HIGH);
         entity.setThreatScore(threatScore);
         entity.setRawPayload("{}");
         return entity;

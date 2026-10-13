@@ -1,14 +1,22 @@
 package com.interview.mini_wsa.service;
 
-import com.akamai.wsa.model.*;
+import com.interview.mini_wsa.model.*;
 import com.interview.mini_wsa.configuration.WsaConfig;
 import com.interview.mini_wsa.exception.InvalidIngestRequestException;
 import com.interview.mini_wsa.model.SecurityEventEntity;
 import com.interview.mini_wsa.repository.ActionStats;
 import com.interview.mini_wsa.repository.CategoryStats;
 import com.interview.mini_wsa.repository.SecurityEventRepository;
+import com.interview.mini_wsa.repository.SecurityEventSpecs;
 import jakarta.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanWrapper;
+import org.springframework.beans.PropertyAccessorFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
@@ -32,6 +40,8 @@ import java.util.stream.Collectors;
 @Service
 public class ProcessingServiceImpl implements ProcessingService {
 
+    public static final String TIMESTAMP = "timestamp";
+    public static final Sort DEFAULT_SORT = Sort.by(TIMESTAMP).descending();
     private final WsaConfig wsaConfig;
     private final SecurityEventRepository securityEventRepository;
     private final JsonMapper jsonMapper;
@@ -81,6 +91,46 @@ public class ProcessingServiceImpl implements ProcessingService {
         return response;
     }
 
+    @Override
+    public Page<EnrichedSecurityEvent> getSecurityEvents(Long configId, OffsetDateTime from, OffsetDateTime to, String category, String action, Integer limit, Integer offset) {
+        verifyPagination(limit, offset);
+        Pageable pageable = PageRequest.of(offset / limit, limit, DEFAULT_SORT);
+        Specification<SecurityEventEntity> filterEvents = SecurityEventSpecs.filterEvents(configId, category, action, from, to);
+        return securityEventRepository.findAll(filterEvents, pageable)
+                .map(entity -> {
+                    EnrichedSecurityEvent event = new EnrichedSecurityEvent();
+                    event.setConfigId(entity.getConfigId());
+                    event.setTimestamp(entity.getTimestamp());
+                    event.setEventId(entity.getEventId());
+                    event.setClientIp(entity.getClientIp());
+                    event.setAction(entity.getAction());
+                    event.setHostname(entity.getHostname());
+                    event.setPath(entity.getPath());
+                    event.setPolicyId(entity.getPolicyId());
+                    event.setReceivedAt(entity.getReceivedAt());
+                    event.setThreatScore(entity.getThreatScore());
+                    event.setRule(new Rule(null, entity.getSeverity(), entity.getCategory()));
+                    return event;
+                });
+    }
+
+    private void verifyPagination(Integer limit, Integer offset) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Limit must be greater than 0.");
+        }
+        if (offset < 0) {
+            throw new IllegalArgumentException("Offset cannot be negative.");
+        }
+        if (offset % limit != 0) {
+            // Alternative: Auto-Adjusting instead of Throwing an Error
+            throw new IllegalArgumentException(
+                    String.format("Invalid offset (%d). Offset must be a perfect multiple of the limit (%d). " +
+                                    "Expected values include: 0, %d, %d, %d...",
+                            offset, limit, limit, limit * 2, limit * 3)
+            );
+        }
+    }
+
     private SecurityEventEntity toEntity(SecurityEvent event, OffsetDateTime now) {
         SecurityEventEntity entity = new SecurityEventEntity();
         entity.setEventId(event.getEventId());
@@ -93,9 +143,9 @@ public class ProcessingServiceImpl implements ProcessingService {
         entity.setPath(event.getPath());
         Rule rule = event.getRule();
         Rule.CategoryEnum category = rule.getCategory();
-        entity.setCategory(category.name());
-        entity.setSeverity(rule.getSeverity().name());
-        entity.setAction(event.getAction().name());
+        entity.setCategory(category);
+        entity.setSeverity(rule.getSeverity());
+        entity.setAction(event.getAction());
         String attackType = Optional.ofNullable(wsaConfig.getCategories().get(category.name()))
                 .orElseGet(() -> {
                     log.warn("Non configured wsa category {}, fallback to provided value {}", category.name(), category.getValue());
@@ -114,9 +164,29 @@ public class ProcessingServiceImpl implements ProcessingService {
         if (containsSensitivePath(event)) {
             score += 15;
         }
-//        score += wsaConfig.getRules().stream() / TODO: implement rule check
+        score += wsaConfig.getRules()
+                .stream()
+                .mapToInt(rule -> {
+                    String fieldName = rule.getMatchingField();
+                    long count = securityEventRepository
+                            .count(SecurityEventSpecs.countMatchingField(fieldName, getValue(event, fieldName), rule.getWindowMinutes()));
+                    if (count >= rule.getCount()) {
+                        return rule.getScore();
+                    } else {
+                        return 0;
+                    }
+                })
+                .sum();
 
         return Math.min(score, 100);
+    }
+
+    public static Object getValue(SecurityEvent event, String fieldName) {
+        BeanWrapper wrapper = PropertyAccessorFactory.forBeanPropertyAccess(event);
+        if (!wrapper.isReadableProperty(fieldName)) {
+            throw new IllegalArgumentException("Unknown field: " + fieldName);
+        }
+        return wrapper.getPropertyValue(fieldName);
     }
 
     private boolean containsSensitivePath(SecurityEvent event) {
