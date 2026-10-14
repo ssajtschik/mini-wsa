@@ -221,7 +221,7 @@ class ProcessingServiceTest {
         InvalidIngestRequestException thrown = assertThrows(InvalidIngestRequestException.class,
                 () -> processingService.ingest(new IngestRequest().event(event)));
 
-        assertTrue(thrown.getMessage().contains("event.policyId: must not be null"), thrown.getMessage());
+        assertTrue(thrown.getErrors().contains("event.policyId: must not be null"), thrown.getErrors().toString());
         verifyNoInteractions(securityEventRepository);
     }
 
@@ -238,10 +238,10 @@ class ProcessingServiceTest {
         InvalidIngestRequestException thrown = assertThrows(InvalidIngestRequestException.class,
                 () -> processingService.ingest(new IngestRequest().events(List.of(valid, invalid))));
 
-        assertTrue(thrown.getMessage().contains("events[1].configId: must not be null"), thrown.getMessage());
-        assertTrue(thrown.getMessage().contains("events[1].hostname: must not be null"), thrown.getMessage());
-        assertTrue(thrown.getMessage().contains("events[1].rule.severity: must not be null"), thrown.getMessage());
-        assertFalse(thrown.getMessage().contains("events[0]"), thrown.getMessage());
+        assertTrue(thrown.getErrors().contains("events[1].configId: must not be null"), thrown.getErrors().toString());
+        assertTrue(thrown.getErrors().contains("events[1].hostname: must not be null"), thrown.getErrors().toString());
+        assertTrue(thrown.getErrors().contains("events[1].rule.severity: must not be null"), thrown.getErrors().toString());
+        assertEquals(3, thrown.getErrors().size(), thrown.getErrors().toString());
         verifyNoInteractions(securityEventRepository);
     }
 
@@ -254,7 +254,7 @@ class ProcessingServiceTest {
         InvalidIngestRequestException thrown = assertThrows(InvalidIngestRequestException.class,
                 () -> processingService.ingest(new IngestRequest().events(List.of(invalid))));
 
-        assertTrue(thrown.getMessage().contains("events[0].rule: must not be null"), thrown.getMessage());
+        assertTrue(thrown.getErrors().contains("events[0].rule: must not be null"), thrown.getErrors().toString());
         verifyNoInteractions(securityEventRepository);
     }
 
@@ -269,7 +269,7 @@ class ProcessingServiceTest {
         InvalidIngestRequestException thrown = assertThrows(InvalidIngestRequestException.class,
                 () -> processingService.ingest(new IngestRequest().events(events)));
 
-        assertTrue(thrown.getMessage().contains("events[1]: must not be null"), thrown.getMessage());
+        assertTrue(thrown.getErrors().contains("events[1]: must not be null"), thrown.getErrors().toString());
         verifyNoInteractions(securityEventRepository);
     }
 
@@ -584,6 +584,13 @@ class ProcessingServiceTest {
 
         assertTrue(thrown.getMessage().contains("Invalid offset (15)"), thrown.getMessage());
         assertTrue(thrown.getMessage().contains("Expected values include: 0, 20, 40, 60"), thrown.getMessage());
+        verifyNoInteractions(securityEventRepository);
+    }
+
+    @Test
+    void getSecurityEvents_unknownCategoryFilter_throwsBeforeQuerying() {
+        assertThrows(IllegalArgumentException.class,
+                () -> processingService.getSecurityEvents(14227L, FROM, TO, "NOT_A_CATEGORY", null, 20, 0));
         verifyNoInteractions(securityEventRepository);
     }
 

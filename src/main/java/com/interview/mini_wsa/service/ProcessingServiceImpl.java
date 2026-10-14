@@ -212,7 +212,7 @@ public class ProcessingServiceImpl implements ProcessingService {
                     .forEach(errors::add);
         }
         if (!errors.isEmpty()) {
-            throw new InvalidIngestRequestException("Invalid security event(s): " + String.join("; ", errors));
+            throw new InvalidIngestRequestException("Invalid security event(s).", errors);
         }
     }
 
