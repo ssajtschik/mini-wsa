@@ -229,13 +229,13 @@ class MiniWsaControllerTest {
     @Test
     void getSummary_returnsServiceResponseAsJson() throws Exception {
         StatsSummaryResponse response = new StatsSummaryResponse(
-                14227L,
                 new StatsSummaryResponseTimeRange(FROM, TO),
                 1523L,
                 Map.of("INJECTION", new CategoryMetrics(450L, 72.3)),
                 Map.of("DENY", 890L),
                 List.of(new AttackerMetric("203.0.113.42", 87L, 81.2)),
-                List.of(new PathMetric("/api/v1/login", 234L)));
+                List.of(new PathMetric("/api/v1/login", 234L)))
+                .configId(14227L);
         when(processingService.getSummary(14227L, FROM, TO)).thenReturn(response);
 
         mockMvc.perform(get("/v1/stats/summary")
@@ -253,8 +253,24 @@ class MiniWsaControllerTest {
     }
 
     @Test
+    void getSummary_withoutConfigId_passesNullToService() throws Exception {
+        when(processingService.getSummary(null, FROM, TO)).thenReturn(
+                new StatsSummaryResponse(new StatsSummaryResponseTimeRange(FROM, TO), 42L,
+                        Map.of(), Map.of(), List.of(), List.of()));
+
+        mockMvc.perform(get("/v1/stats/summary")
+                        .param("from", "2026-10-12T00:00:00Z")
+                        .param("to", "2026-10-12T23:59:59Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalEvents").value(42));
+    }
+
+    @Test
     void getSummary_unparsableConfigId_returnsBadRequest() throws Exception {
-        mockMvc.perform(get("/v1/stats/summary").param("configId", "abc"))
+        mockMvc.perform(get("/v1/stats/summary")
+                        .param("configId", "abc")
+                        .param("from", "2026-10-12T00:00:00Z")
+                        .param("to", "2026-10-12T23:59:59Z"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("Failed to convert 'configId' with value: 'abc'"));
 

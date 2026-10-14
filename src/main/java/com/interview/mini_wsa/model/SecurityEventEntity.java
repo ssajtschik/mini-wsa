@@ -18,7 +18,8 @@ import java.time.OffsetDateTime;
         },
         indexes = {
                 @Index(name = "idx_client_ip_timestamp", columnList = "client_ip, timestamp"),
-                @Index(name = "idx_config_id", columnList = "config_id"),
+                @Index(name = "idx_config_id_timestamp", columnList = "config_id, timestamp"),
+                @Index(name = "idx_timestamp", columnList = "timestamp"),
                 @Index(name = "idx_category", columnList = "category")
         }
 )

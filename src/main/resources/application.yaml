@@ -9,7 +9,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update # Never use in production
-    show-sql: true
+    show-sql: false # set to true for debug
     properties:
       hibernate:
         format_sql: true
@@ -36,6 +36,7 @@ mini-wsa:
     DENY: 20
     ALERT: 10
     MONITOR: 0
+  sensitive-paths-score: 15
   sensitive-paths:
     - /admin
     - /login

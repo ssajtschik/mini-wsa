@@ -4,6 +4,7 @@ import com.interview.mini_wsa.TestcontainersConfiguration;
 import com.interview.mini_wsa.model.Rule;
 import com.interview.mini_wsa.model.SecurityAction;
 import com.interview.mini_wsa.model.SecurityEventEntity;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +47,9 @@ class SecurityEventRepositoryTest {
     @Autowired
     private SecurityEventRepository repository;
 
+    @Autowired
+    private EntityManager entityManager;
+
     private int sequence;
 
     @BeforeEach
@@ -66,8 +70,44 @@ class SecurityEventRepositoryTest {
     // --- summary queries ---
 
     @Test
-    void countByConfigIdAndTimestampBetween_countsInclusiveRangeOfOneConfig() {
-        assertEquals(4, repository.countByConfigIdAndTimestampBetween(CONFIG_ID, FROM, TO));
+    void countEvents_countsInclusiveRangeOfOneConfig() {
+        assertEquals(4, repository.countEvents(CONFIG_ID, FROM, TO));
+    }
+
+    @Test
+    void countEvents_withoutConfigId_countsAllConfigs() {
+        assertEquals(5, repository.countEvents(null, FROM, TO));
+    }
+
+    @Test
+    void findCategoryStats_withoutConfigId_aggregatesAllConfigs() {
+        Map<String, Long> counts = repository.findCategoryStats(null, FROM, TO).stream()
+                .collect(Collectors.toMap(CategoryStats::getCategory, CategoryStats::getCount));
+
+        assertEquals(Map.of("INJECTION", 4L, "XSS", 1L), counts);
+    }
+
+    @Test
+    void findActionStats_withoutConfigId_aggregatesAllConfigs() {
+        Map<String, Long> counts = repository.findActionStats(null, FROM, TO).stream()
+                .collect(Collectors.toMap(ActionStats::getAction, ActionStats::getCount));
+
+        assertEquals(Map.of("DENY", 3L, "ALERT", 1L, "MONITOR", 1L), counts);
+    }
+
+    @Test
+    void findTopAttackerStats_withoutConfigId_aggregatesAllConfigs() {
+        List<AttackerStats> stats = repository.findTopAttackerStats(null, FROM, TO);
+
+        assertEquals(IP_A, stats.getFirst().getClientIp());
+        assertEquals(4, stats.getFirst().getCount());
+    }
+
+    @Test
+    void findTopPathStats_withoutConfigId_aggregatesAllConfigs() {
+        List<PathStats> stats = repository.findTopPathStats(null, FROM, TO);
+
+        assertEquals(List.of(4L, 1L), stats.stream().map(PathStats::getCount).toList());
     }
 
     @Test
@@ -230,11 +270,11 @@ class SecurityEventRepositoryTest {
         OffsetDateTime now = OffsetDateTime.now();
         String ip = "192.0.2.200";
         repository.saveAll(List.of(
-                received(event(CONFIG_ID, "BOT", SecurityAction.DENY, 10, ip, "/", now), now),
-                received(event(CONFIG_ID, "BOT", SecurityAction.DENY, 10, ip, "/", now), now.minusMinutes(5)),
-                received(event(CONFIG_ID, "BOT", SecurityAction.DENY, 10, ip, "/", now), now.minusHours(1)),
+                event(CONFIG_ID, "BOT", SecurityAction.DENY, 10, ip, "/", now),
+                event(CONFIG_ID, "BOT", SecurityAction.DENY, 10, ip, "/", now.minusMinutes(5)),
+                event(CONFIG_ID, "BOT", SecurityAction.DENY, 10, ip, "/", now.minusHours(1)),
                 // other value
-                received(event(CONFIG_ID, "BOT", SecurityAction.DENY, 10, "192.0.2.201", "/", now), now)));
+                event(CONFIG_ID, "BOT", SecurityAction.DENY, 10, "192.0.2.201", "/", now)));
 
         assertEquals(2, repository.count(SecurityEventSpecs.countMatchingField("clientIp", ip, 10)));
         assertEquals(3, repository.count(SecurityEventSpecs.countMatchingField("clientIp", ip, 120)));
@@ -259,6 +299,18 @@ class SecurityEventRepositoryTest {
         duplicate.setEventId("repo-test-1");
 
         assertThrows(DataIntegrityViolationException.class, () -> repository.saveAndFlush(duplicate));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void schema_hasIndexesMatchingTheQueries() {
+        List<String> indexes = entityManager.createNativeQuery(
+                        "SELECT indexdef FROM pg_indexes WHERE tablename = 'security_events'")
+                .getResultList();
+
+        assertTrue(indexes.stream().anyMatch(d -> d.endsWith("(client_ip, \"timestamp\")")), indexes.toString());
+        assertTrue(indexes.stream().anyMatch(d -> d.endsWith("(config_id, \"timestamp\")")), indexes.toString());
+        assertTrue(indexes.stream().anyMatch(d -> d.endsWith("(\"timestamp\")")), indexes.toString());
     }
 
     private static SecurityEventEntity received(SecurityEventEntity entity, OffsetDateTime receivedAt) {

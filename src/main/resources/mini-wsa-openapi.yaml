@@ -96,7 +96,7 @@ paths:
       parameters:
         - name: configId
           in: query
-          required: true
+          required: false
           description: The unique identifier of the configuration.
           schema:
             type: integer
@@ -218,6 +218,8 @@ components:
           required:
             - receivedAt
             - threatScore
+            - attackType
+            - rawPayload
           properties:
             receivedAt:
               type: string
@@ -228,6 +230,11 @@ components:
               minimum: 0
               maximum: 100
               example: 80
+            attackType:
+              type: string
+              description: 'Type of attack according to configuration'
+            rawPayload:
+              additionalProperties: true
 
     Rule:
       type: object
@@ -271,7 +278,6 @@ components:
     StatsSummaryResponse:
       type: object
       required:
-        - configId
         - timeRange
         - totalEvents
         - byCategory

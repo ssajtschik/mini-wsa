@@ -11,7 +11,7 @@ The goal of this service is to mimic a core backend brain for a SOC (Security Op
 ## Architectural Strategy & Choices
 
 ### 1. Technology Stack
-* **Language/Framework:** Java 25+ with Spring Boot 3.x
+* **Language/Framework:** Java 25+ with Spring Boot 4.x
     * Standard enterprise toolset offering robust web REST support, validation, and database abstraction layers.
 * **API Documentation:** Springdoc OpenAPI (Swagger UI)
     * Provides interactive API documentation and auto-generated endpoints.
@@ -151,37 +151,102 @@ Below is the structured breakdown I am following to build, test, and deliver the
 
 ---
 
-## How to Run locally
+## How to Run Locally
 
-*(Will be updated during release)*
-1. Start PostgreSQL: `docker compose up -d`
-2. Access Swagger UI: `http://localhost:8080/swagger-ui/index.html`
+Get the application, database, and test data running on your machine in a few simple steps.
 
+### 1. Start the Infrastructure
+Spin up PostgreSQL using Docker Compose:
+```bash
+docker compose up -d
+```
+### 2. Access the API Documentation
+Once the Spring Boot application starts up, explore and test the endpoints interactively via Swagger UI:
+- URL: http://localhost:8080/swagger-ui/index.html
 
-## Design Decisions & Engineering Trade-Offs
+### 3. Generate Test Data
+Populate the database with sample security events using the provided script. 
+You can customize the total number of events (-n) and batch size (-b):
 
-*(Will be updated during release)*
+```Bash
+./generate_data.sh -n 10000 -b 200
+```
+Run `./generate_data.sh -h` to see all available configuration options.
 
-### 1. Ingestion Payload Envelope (`/v1/events/ingest`)
-* **The Assessment Requirement:** The prompt states that the endpoint should accept either a single event or a batch array.
-* **The Real-World Challenge:** Supporting polymorphic inputs (both `SecurityEvent` and `List<SecurityEvent>`) in a single REST endpoint leads to messy parsing logic and makes schema evolution difficult, risking breaking changes for API consumers down the road.
-* **Decision:** For this take-home assessment, I chose to implement a clean wrapper JSON payload (envelope pattern) rather than raw polymorphic arrays. In a true enterprise production environment, we would implement content-type negotiation or versioned endpoints (`/v1/events` vs `/v1/events/batch`), but the wrapper provides the best balance of safety and simplicity for this scope.
+### 4. Test with HTTP Client
+Pre-configured request files are available for manual testing or API client execution:
+- Path: `./http-client-plus/collection/mini-wsa`
 
-### 2. Error handling
-I added a global exception handler to catch common errors and return clean HTTP status codes instead of generic 500 server crashes.
-* **Define proper error handling:** Duplicates, Bad Requests and Missing Configs, etc. 
+## Architecture Trade-Offs and Production Roadmap
 
-### 3. Summary endpoint
-I built this summary endpoint directly into the database to keep things simple for a take-home project. In a real production system, running heavy aggregations and building nested JSON on an operational database is a bad idea because it can slow down live writes.
+This document outlines the architectural decisions and trade-offs made for the take-home assessment, contrasting them with how these components would be built in a real-world, high-scale production environment.
 
-Real-world systems usually handle this by pushing data to a dedicated data warehouse like ClickHouse or Snowflake, or by splitting reporting concerns using a separate read model.
-* **Analytical Offloading:** Route heavy reporting queries to a dedicated data warehouse or OLAP store rather than an operational database.
-* **Read Replicas:** Route analytical and summary reads to a replica database to prevent heavy aggregation queries from impacting primary transaction I/O.
+**Real-World Priorities**: Ingestion and Storage First
+If this were a production system, my primary architectural focus would be entirely on robust ingestion and proper data storage. Building complex analytics dashboards and heavy summary endpoints is secondary and comes much later in the project lifecycle.
 
-### 4. Data structure
-For this take-home assessment, SecurityEventEntity is kept flat and semi-structured using jsonb to balance implementation speed with query flexibility.
+In practice, monolithic aggregated endpoints are a bad design choice. Instead of forcing an operational service to compute heavy summaries on the fly, real systems rely on targeted, lightweight requests for specific data, or offload reporting entirely to dedicated analytical tools that query a data warehouse directly.
 
-In a production environment handling high-volume security logs, a different architectural strategy is required:
+### 1.Ingestion Pipeline
+#### Payload Envelope (/v1/events/ingest)
+- Assessment Approach: The endpoint accepts a wrapper JSON envelope containing either a single event or a batch array to keep parsing straightforward.
+- Production Reality: Supporting polymorphic inputs in a single REST endpoint leads to messy parsing logic and fragile schema evolution. Real APIs maintain a fixed format, typically batch-only or newline-delimited JSON, so schemas can change safely over time.
 
-* **Partitioning and Retention:** Implement time-based table partitioning and automated retention policies to reduce working memory usage and speed up data retrieval.
-* **Asynchronous Ingestion:** Buffer incoming events through a message broker like Apache Kafka to stabilize ingestion under heavy traffic spikes.
+#### Synchronous vs. Asynchronous Processing
+- Assessment Approach: A synchronous REST endpoint that writes directly to the database and returns an HTTP 201 Created once stored.
+- Production Reality: Events should arrive through a message broker like Kafka. An API gateway or edge service pushes events to a topic, and stream processors handle enrichment and bulk writing asynchronously. Clients receive an HTTP 202 Accepted status because the ingestion work happens in the background, ensuring the client never waits on the database.
+
+#### Batch Error Handling
+- Assessment Approach: If any event in a batch fails validation or triggers a duplicate key constraint, the entire transaction rolls back and the batch is rejected with an HTTP 400 or 409.
+- Production Reality: Rejecting an entire batch because of one malformed record discards valid data. Production pipelines accept valid events and route invalid ones to a dead-letter queue for inspection.
+
+#### Timestamps
+- Assessment Approach: The receivedAt timestamp is generated using the application server clock.
+- Production Reality: Timestamps should be captured at the edge or broker level. Systems should track event time and ingestion time separately to properly handle late or out-of-order events.
+
+### 2. Error Handling
+- Assessment Approach: A global exception handler catches common errors like duplicates, bad requests, and missing configurations, returning clean HTTP status codes instead of generic server crashes.
+- Production Reality: Clear status codes remain essential, but asynchronous ingestion pipelines replace traditional database exceptions with dead-letter routing and retry policies for transient failures.
+
+### 3. Enrichment and Threat Scoring
+#### Frequency Checks
+- Assessment Approach: Checking repeat offenders by running a database count query on every incoming write. This creates performance bottlenecks and race conditions.
+- Production Reality: Real systems use stateful stream processors like Kafka Streams with windowed aggregation, or maintain in-memory sliding window counters in Redis keyed by client IP.
+
+#### Scoring Logic
+- Assessment Approach: Threat scores are computed once during ingestion and stored permanently with hardcoded weights.
+- Production Reality: Scoring rules change over time. Systems should version their scoring models or compute certain signals at query time so historical data can be re-scored against new rules. Configurations should be dynamic per customer or policy rather than hardcoded constants.
+
+### 4. Analytics and Stats API
+#### Aggregations
+- Assessment Approach: Running GROUP BY queries directly on raw operational tables to generate summary reports.
+- Production Reality: Querying millions of raw events on every dashboard refresh degrades database performance. Production systems use pre-aggregated rollups in data warehous (ClickHouse etc.).
+
+#### Top-K Attackers and Paths
+- Assessment Approach: Exact top-N queries using database sorting.
+- Production Reality: Not Satisfied with this approach would have to investigate more time for a better solution. 
+
+#### Multi-Tenancy and Security
+- Assessment Approach: Allowing an optional configId parameter to filter analytics.
+- Production Reality: Omitting a configuration identifier can introduce tenant isolation risks. Tenant scopes must be enforced through the caller's authentication context rather than optional query parameters, and endpoints must require proper authentication and authorization.
+
+### 5. Search and Samples API
+#### Pagination
+- Assessment Approach: Using limit and offset pagination alongside a total count query.
+- Production Reality: Large offsets degrade performance because databases still scan skipped rows, and calculating exact counts over large filtered sets is expensive. Depending on different systems and services available, better solution should be in place.
+
+#### Unbounded Filters
+- Assessment Approach: Fully optional filters allowing queries without a time range.
+- Production Reality: Unbounded queries over large data tables can cause high resource consumption. Queries without a time range should be rejected or default to a recent sliding window.
+
+### 6. Storage and General Architecture
+#### Database Choice
+- Assessment Approach: A single relational PostgreSQL table with JSONB columns. This works well for a take-home assessment, but at billions of events per day, operational databases hit scaling limits.
+- Production Reality: High-volume pipelines require time-partitioned columnar or OLAP storage featuring automated retention policies, time-to-live rules, and hot or cold tiering.
+
+#### Schema Management
+- Assessment Approach: Relying on automatic schema updates (ddl-auto: update).
+- Production Reality: Production deployments require explicit migration tools like Flyway or Liquibase to maintain safe, trackable schema changes.
+
+#### Testing
+- Assessment Approach: Running data generators directly against the live API.
+- Production Reality: Comprehensive load testing involves replaying recorded production traffic into messaging queues to validate system stability under peak loads.

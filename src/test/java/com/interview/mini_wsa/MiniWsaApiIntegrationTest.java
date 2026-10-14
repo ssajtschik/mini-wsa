@@ -10,6 +10,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -57,8 +60,8 @@ class MiniWsaApiIntegrationTest {
                 .jsonPath("$.content[0].configId").isEqualTo(configId)
                 .jsonPath("$.content[0].clientIp").isEqualTo(ip)
                 .jsonPath("$.content[0].action").isEqualTo("DENY")
-                .jsonPath("$.content[0].rule.category").isEqualTo("INJECTION")
-                .jsonPath("$.content[0].rule.severity").isEqualTo("CRITICAL")
+                .jsonPath("$.content[0].rawPayload.rule.category").isEqualTo("INJECTION")
+                .jsonPath("$.content[0].rawPayload.rule.severity").isEqualTo("CRITICAL")
                 .jsonPath("$.content[0].receivedAt").exists()
                 // CRITICAL (40) + DENY (20) + sensitive path (15)
                 .jsonPath("$.content[0].threatScore").isEqualTo(75);
@@ -117,7 +120,7 @@ class MiniWsaApiIntegrationTest {
         // The rule counts already stored events, so the 6th request is the first to see 5 prior hits
         for (int i = 0; i < 6; i++) {
             ingest("{\"event\": " + event("evt-rule-" + configId + "-" + i, configId,
-                    "2026-10-12T05:00:0" + i + "Z", ip, "/", "LOW", "BOT", "MONITOR") + "}")
+                    recentTimestamp(i), ip, "/", "LOW", "BOT", "MONITOR") + "}")
                     .expectStatus().isCreated();
         }
 
@@ -129,6 +132,31 @@ class MiniWsaApiIntegrationTest {
                 .jsonPath("$.content[0].threatScore").isEqualTo(25)
                 .jsonPath("$.content[1].threatScore").isEqualTo(10)
                 .jsonPath("$.content[5].threatScore").isEqualTo(10);
+    }
+
+    @Test
+    void ingest_attackWaveInOneBatch_triggersWindowedRuleScore() {
+        long configId = CONFIG_IDS.incrementAndGet();
+        String ip = nextIp();
+        StringBuilder wave = new StringBuilder();
+        for (int i = 0; i < 7; i++) {
+            if (i > 0) {
+                wave.append(',');
+            }
+            wave.append(event("evt-wave-" + configId + "-" + i, configId, recentTimestamp(i), ip, "/", "LOW", "BOT", "MONITOR"));
+        }
+
+        ingest("{\"events\": [" + wave + "]}").expectStatus().isCreated();
+
+        // earlier events of the same batch count too: the 6th and 7th see 5 and 6 prior hits
+        samples("configId=" + configId + "&limit=10")
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.content[0].eventId").isEqualTo("evt-wave-" + configId + "-6")
+                .jsonPath("$.content[0].threatScore").isEqualTo(25)
+                .jsonPath("$.content[1].threatScore").isEqualTo(25)
+                .jsonPath("$.content[2].threatScore").isEqualTo(10)
+                .jsonPath("$.content[6].threatScore").isEqualTo(10);
     }
 
     @Test
@@ -373,6 +401,11 @@ class MiniWsaApiIntegrationTest {
 
     private static String nextEventId() {
         return "evt-it-" + EVENT_IDS.incrementAndGet();
+    }
+
+    /** Within the windowed rule's lookback (which runs back from now), {@code i} seconds apart. */
+    private static String recentTimestamp(int i) {
+        return OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1).plusSeconds(i).truncatedTo(ChronoUnit.SECONDS).toString();
     }
 
     private static String event(String eventId, long configId, String timestamp, String clientIp, String path,

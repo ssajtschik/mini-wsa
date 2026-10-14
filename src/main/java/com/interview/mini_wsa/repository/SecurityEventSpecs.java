@@ -12,7 +12,6 @@ import java.util.List;
 
 public class SecurityEventSpecs {
 
-    public static final String RECEIVED_AT = "receivedAt";
     public static final String TIMESTAMP = "timestamp";
     public static final String CONFIG_ID = "configId";
     public static final String CATEGORY = "category";
@@ -60,7 +59,7 @@ public class SecurityEventSpecs {
     public static Specification<SecurityEventEntity> countMatchingField(
             String fieldName, Object value, long timeWindow) {
         return (root, query, cb) -> {
-            Predicate timePredicate = cb.greaterThan(root.get(RECEIVED_AT), OffsetDateTime.now().minusMinutes(timeWindow));
+            Predicate timePredicate = cb.greaterThanOrEqualTo(root.get(TIMESTAMP), OffsetDateTime.now().minusMinutes(timeWindow));
             
             if (value == null) {
                 return timePredicate;

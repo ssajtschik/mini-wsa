@@ -37,7 +37,7 @@ public class MiniWsaController implements V1Api {
     }
 
     @Override
-    public ResponseEntity<StatsSummaryResponse> getSummary(Long configId, OffsetDateTime from, OffsetDateTime to) {
+    public ResponseEntity<StatsSummaryResponse> getSummary(OffsetDateTime from, OffsetDateTime to, Long configId) {
         StatsSummaryResponse response = processingService.getSummary(configId, from, to);
         return ok(response);
     }

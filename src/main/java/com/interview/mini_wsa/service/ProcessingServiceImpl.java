@@ -22,10 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -42,6 +39,7 @@ public class ProcessingServiceImpl implements ProcessingService {
 
     public static final String TIMESTAMP = "timestamp";
     public static final Sort DEFAULT_SORT = Sort.by(TIMESTAMP).descending();
+    public static final int MAX_SCORE = 100;
     private final WsaConfig wsaConfig;
     private final SecurityEventRepository securityEventRepository;
     private final JsonMapper jsonMapper;
@@ -64,9 +62,12 @@ public class ProcessingServiceImpl implements ProcessingService {
         validateEvents(events, ingestRequest.getEvent() != null ? "event" : "events");
         log.debug("Processing {} security event(s)", events.size());
         OffsetDateTime now = OffsetDateTime.now();
-        List<SecurityEventEntity> entities = events.stream()
-                .map(event -> toEntity(event, now))
-                .toList();
+        // Prior occurrences per windowed rule and matching value, kept up to date while the batch is scored
+        Map<WsaConfig.WsaRule, Map<Object, Long>> occurrences = new HashMap<>();
+        List<SecurityEventEntity> entities = new ArrayList<>(events.size());
+        for (SecurityEvent event : events) {
+            entities.add(toEntity(event, now, occurrences));
+        }
 
         securityEventRepository.saveAll(entities);
     }
@@ -79,7 +80,7 @@ public class ProcessingServiceImpl implements ProcessingService {
         timeRange.setFrom(from);
         timeRange.setTo(to);
         response.setTimeRange(timeRange);
-        response.setTotalEvents(securityEventRepository.countByConfigIdAndTimestampBetween(configId, from, to));
+        response.setTotalEvents(securityEventRepository.countEvents(configId, from, to));
         response.setByCategory(securityEventRepository.findCategoryStats(configId, from, to)
                 .stream().collect(Collectors.toMap(CategoryStats::getCategory, stat -> new CategoryMetrics(stat.getCount(), stat.getAvgThreatScore()))));
         response.setByAction(securityEventRepository.findActionStats(configId, from, to)
@@ -109,7 +110,11 @@ public class ProcessingServiceImpl implements ProcessingService {
                     event.setPolicyId(entity.getPolicyId());
                     event.setReceivedAt(entity.getReceivedAt());
                     event.setThreatScore(entity.getThreatScore());
-                    event.setRule(new Rule(null, entity.getSeverity(), entity.getCategory()));
+                    event.setAttackType(entity.getAttackType());
+                    Optional.ofNullable(entity.getRawPayload()).ifPresent(payload ->
+                            event.setRawPayload(jsonMapper.readValue(payload, Map.class))
+                    );
+
                     return event;
                 });
     }
@@ -131,7 +136,8 @@ public class ProcessingServiceImpl implements ProcessingService {
         }
     }
 
-    private SecurityEventEntity toEntity(SecurityEvent event, OffsetDateTime now) {
+    private SecurityEventEntity toEntity(SecurityEvent event, OffsetDateTime now,
+                                         Map<WsaConfig.WsaRule, Map<Object, Long>> occurrences) {
         SecurityEventEntity entity = new SecurityEventEntity();
         entity.setEventId(event.getEventId());
         entity.setTimestamp(event.getTimestamp());
@@ -152,33 +158,44 @@ public class ProcessingServiceImpl implements ProcessingService {
                     return category.getValue();
                 });
         entity.setAttackType(attackType);
-        entity.setThreatScore(evalThreatScore(event));
+        entity.setThreatScore(evalThreatScore(event, now, occurrences));
         entity.setRawPayload(jsonMapper.writeValueAsString(event));
         return entity;
     }
 
-    private int evalThreatScore(SecurityEvent event) {
+    // Threat Score Calculator
+    private int evalThreatScore(SecurityEvent event, OffsetDateTime now,
+                                Map<WsaConfig.WsaRule, Map<Object, Long>> occurrences) {
         int score = 0;
         score += Optional.ofNullable(wsaConfig.getSeverities().get(event.getRule().getSeverity().name())).orElse(0);
         score += Optional.ofNullable(wsaConfig.getActions().get(event.getAction().name())).orElse(0);
         if (containsSensitivePath(event)) {
-            score += 15;
+            score += wsaConfig.getSensitivePathsScore();
         }
         score += wsaConfig.getRules()
                 .stream()
-                .mapToInt(rule -> {
-                    String fieldName = rule.getMatchingField();
-                    long count = securityEventRepository
-                            .count(SecurityEventSpecs.countMatchingField(fieldName, getValue(event, fieldName), rule.getWindowMinutes()));
-                    if (count >= rule.getCount()) {
-                        return rule.getScore();
-                    } else {
-                        return 0;
-                    }
-                })
+                .mapToInt(rule -> windowedRuleScore(rule, event, now, occurrences))
                 .sum();
 
-        return Math.min(score, 100);
+        return Math.min(score, MAX_SCORE);
+    }
+
+    /**
+     * Prior occurrences are the matching events already stored plus the earlier events of the current
+     * batch, which are not saved yet. The database is queried once per rule and value per batch.
+     */
+    private int windowedRuleScore(WsaConfig.WsaRule rule, SecurityEvent event, OffsetDateTime now,
+                                  Map<WsaConfig.WsaRule, Map<Object, Long>> occurrences) {
+        String fieldName = rule.getMatchingField();
+        Object value = getValue(event, fieldName);
+        Map<Object, Long> counts = occurrences.computeIfAbsent(rule, r -> new HashMap<>());
+        long prior = counts.computeIfAbsent(value, v -> securityEventRepository
+                .count(SecurityEventSpecs.countMatchingField(fieldName, v, rule.getWindowMinutes())));
+        // Same window as the database count, so a backfilled old event doesn't count for later ones
+        if (event.getTimestamp().isAfter(now.minusMinutes(rule.getWindowMinutes()))) {
+            counts.put(value, prior + 1);
+        }
+        return prior >= rule.getCount() ? rule.getScore() : 0;
     }
 
     public static Object getValue(SecurityEvent event, String fieldName) {

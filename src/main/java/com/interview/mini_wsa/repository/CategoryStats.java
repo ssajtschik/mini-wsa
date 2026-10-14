@@ -2,7 +2,7 @@ package com.interview.mini_wsa.repository;
 
 /**
  * Per-category aggregate of security events, as returned by
- * {@link SecurityEventRepository#findCategoryStats}.
+ * {@link SecurityEventStatsRepository#findCategoryStats}.
  */
 public interface CategoryStats {
     String getCategory();

@@ -14,6 +14,7 @@ public class WsaConfig {
     private Map<String,String> categories;
     private Map<String,Integer> severities;
     private Map<String,Integer> actions;
+    private Integer sensitivePathsScore;
     private List<String> sensitivePaths;
     private List<WsaRule> rules;
 
